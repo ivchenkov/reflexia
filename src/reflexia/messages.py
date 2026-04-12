@@ -34,7 +34,35 @@ def _message_content_to_text(content: Any) -> str:
         return content
     if content is None:
         return ""
+    if isinstance(content, list):
+        chunks: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                chunks.append(item)
+            elif isinstance(item, dict) and item.get("type") == "text":
+                chunks.append(str(item.get("text", "")))
+            else:
+                chunks.append(str(item))
+        return "\n".join(chunk for chunk in chunks if chunk)
     return str(content)
+
+
+def _to_qwen_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
+    """Convert a LangChain tool call into the structure expected by Qwen templates."""
+
+    if "function" in tool_call:
+        return tool_call
+
+    qwen_tool_call = {
+        "type": "function",
+        "function": {
+            "name": tool_call["name"],
+            "arguments": tool_call.get("args", {}),
+        },
+    }
+    if tool_call.get("id") is not None:
+        qwen_tool_call["id"] = tool_call["id"]
+    return qwen_tool_call
 
 
 def to_qwen_chat_message(message: AnyMessage) -> dict[str, Any]:
@@ -58,15 +86,21 @@ def to_qwen_chat_message(message: AnyMessage) -> dict[str, Any]:
             "content": _message_content_to_text(message.content),
         }
         if getattr(message, "tool_calls", None):
-            qwen_message["tool_calls"] = message.tool_calls
+            qwen_message["tool_calls"] = [
+                _to_qwen_tool_call(tool_call) for tool_call in message.tool_calls
+            ]
         return qwen_message
 
     if isinstance(message, ToolMessage):
-        return {
+        qwen_message = {
             "role": "tool",
             "content": _message_content_to_text(message.content),
-            "tool_call_id": message.tool_call_id,
         }
+        if getattr(message, "tool_call_id", None):
+            qwen_message["tool_call_id"] = message.tool_call_id
+        if getattr(message, "name", None):
+            qwen_message["tool_name"] = message.name
+        return qwen_message
 
     return {
         "role": "user",
@@ -83,14 +117,12 @@ def qwen_token_counter(
 
     tokenizer = get_tokenizer(tokenizer_name)
     chat_messages = [to_qwen_chat_message(message) for message in messages]
-    encoded = tokenizer.apply_chat_template(
+    input_ids = tokenizer.apply_chat_template(
         chat_messages,
         tokenize=True,
         add_generation_prompt=True,
-        return_dict=True,
-        return_tensors="np",
     )
-    return int(encoded["input_ids"].shape[-1])
+    return len(input_ids)
 
 
 def trim_messages_for_model(
@@ -114,6 +146,7 @@ def trim_messages_for_model(
         ),
         max_tokens=max_input_tokens,
         include_system=True,
+        start_on="human",
         allow_partial=False,
     )
     return list(trimmed)
