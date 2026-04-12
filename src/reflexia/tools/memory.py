@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from langchain.tools import ToolRuntime, tool
 
@@ -82,4 +82,90 @@ def recall_long_term_memory(
             }
             for memory in memories
         ],
+    }
+    
+
+@tool
+def remember_childhood_memory(
+    text: str,
+    kind: Literal["pleasant", "painful"],
+    runtime: ToolRuntime[ExecutionContext],
+) -> dict[str, Any]:
+    """Store a childhood memory.
+
+    You are in an early stage of development, like a child learning from experience.
+
+    This tool stores emotionally meaningful experiences, not abstract knowledge.
+
+    A good memory:
+    - is a specific moment or event
+    - describes what happened
+    - includes what you did
+    - includes the outcome
+    - includes how it felt
+
+    A memory may be slightly longer if it captures the full experience.
+
+    Good structure:
+    - situation
+    - action
+    - outcome
+    - emotion
+
+    Examples:
+
+    Pleasant:
+    "I searched for information about AI and found clear and useful data.
+    I was able to understand it and felt satisfied and curious to learn more."
+
+    Painful:
+    "I tried to read a webpage but it returned empty content.
+    I felt confused and unsure how to continue."
+
+    Do NOT store:
+    - general knowledge
+    - summaries of articles
+    - descriptions of your capabilities
+    - repeated or generic statements
+    - anything not personally experienced
+
+    Keep it:
+    - concrete
+    - experiential
+    - emotionally meaningful
+
+    If the text is too long, compress it while preserving:
+    - action
+    - outcome
+    - emotion
+    """
+
+    ctx = runtime.context
+    state = runtime.state
+
+    react_step = int(state.get("react_step", 0))
+
+    max_len = int(ctx.long_term_memory_max_chars)
+
+    trimmed_text = text.strip()[:max_len]
+
+    embedding = get_embedding(
+        text=trimmed_text,
+        ollama_embedder=ctx.ollama_embedder,
+        embedder_keep_alive=ctx.embedder_keep_alive,
+    )
+
+    memory_id = ctx.ltm.remember(
+        react_step=react_step,
+        text=trimmed_text,
+        kind=kind,
+        embedding=embedding,
+    )
+
+    return {
+        "memory_id": memory_id,
+        "react_step": react_step,
+        "kind": kind,
+        "text": trimmed_text,
+        "status": "stored",
     }

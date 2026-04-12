@@ -14,10 +14,9 @@ from pydantic import BaseModel, Field
 MemoryKind = Literal[
     "pleasant",
     "painful",
-    "realization",
-    "identity",
-    "biography",
-    "journal",
+    "world",
+    "insight",
+    "reflexia",
 ]
 
 

@@ -14,6 +14,10 @@ class ExecutionContext:
 
     llm: Any
     tools: list[Any]
+    chat_tokenizer_name: str
+    chat_context_window_tokens: int
+    chat_response_reserve_tokens: int
+    chat_token_safety_margin: int
     ltm: LongTermMemory
     ltm_path: str
     max_react_steps: int
@@ -49,15 +53,20 @@ def create_default_execution_context() -> ExecutionContext:
     from langchain_ollama import ChatOllama
 
     llm = ChatOllama(
-        model="qwen3.5:9b-q8_0",
-        temperature=0,
+        model="qwen2.5:14b-instruct",
+        temperature=0.8,
         reasoning=False,
+        num_ctx=32768,
         num_predict=300,
     )
 
     return ExecutionContext(
         llm=llm,
         tools=get_default_tools(),
+        chat_tokenizer_name="Qwen/Qwen2.5-14B-Instruct",
+        chat_context_window_tokens=32768,
+        chat_response_reserve_tokens=512,
+        chat_token_safety_margin=256,
         ltm=LongTermMemory(),
         ltm_path="./memory_test/",
         max_react_steps=50,
