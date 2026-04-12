@@ -12,10 +12,42 @@ from langchain_core.messages import (
     SystemMessage,
     ToolMessage,
 )
-from langchain_core.messages.utils import trim_messages
 from transformers import AutoTokenizer
 
 from reflexia.config import ExecutionContext
+
+
+def _tokenized_length(tokenized: Any) -> int:
+    """Extract the token sequence length from common HF return shapes."""
+
+    if hasattr(tokenized, "keys") and "input_ids" in tokenized:
+        return _tokenized_length(tokenized["input_ids"])
+
+    if isinstance(tokenized, dict):
+        if "input_ids" not in tokenized:
+            raise KeyError("Expected 'input_ids' in tokenized chat template output.")
+        return _tokenized_length(tokenized["input_ids"])
+
+    if hasattr(tokenized, "shape"):
+        shape = tokenized.shape
+        if len(shape) == 1:
+            return int(shape[0])
+        if len(shape) == 0:
+            return 1
+        return int(shape[-1])
+
+    if isinstance(tokenized, list):
+        if not tokenized:
+            return 0
+        first_item = tokenized[0]
+        if isinstance(first_item, list):
+            return len(first_item)
+        return len(tokenized)
+
+    raise TypeError(
+        "Unsupported tokenized chat template output type: "
+        f"{type(tokenized).__name__}"
+    )
 
 
 @lru_cache(maxsize=None)
@@ -117,19 +149,77 @@ def qwen_token_counter(
 
     tokenizer = get_tokenizer(tokenizer_name)
     chat_messages = [to_qwen_chat_message(message) for message in messages]
-    input_ids = tokenizer.apply_chat_template(
+    tokenized = tokenizer.apply_chat_template(
         chat_messages,
         tokenize=True,
         add_generation_prompt=True,
+        return_dict=True,
+        return_tensors="np",
     )
-    return len(input_ids)
+    return _tokenized_length(tokenized)
+
+
+def _split_system_and_conversation(
+    messages: Sequence[AnyMessage],
+) -> tuple[list[AnyMessage], list[AnyMessage]]:
+    """Split leading system messages from the rest of the conversation."""
+
+    system_messages: list[AnyMessage] = []
+    conversation_messages: list[AnyMessage] = []
+    seen_non_system = False
+
+    for message in messages:
+        if not seen_non_system and isinstance(message, SystemMessage):
+            system_messages.append(message)
+            continue
+        seen_non_system = True
+        conversation_messages.append(message)
+
+    return system_messages, conversation_messages
+
+
+def _split_conversation_into_turns(
+    messages: Sequence[AnyMessage],
+) -> list[list[AnyMessage]]:
+    """Group conversation messages into atomic turns for agent-cycle trimming."""
+
+    turns: list[list[AnyMessage]] = []
+    index = 0
+
+    while index < len(messages):
+        message = messages[index]
+
+        if isinstance(message, AIMessage) and getattr(message, "tool_calls", None):
+            turn = [message]
+            index += 1
+            while index < len(messages) and isinstance(messages[index], ToolMessage):
+                turn.append(messages[index])
+                index += 1
+            turns.append(turn)
+            continue
+
+        if isinstance(message, ToolMessage):
+            # Preserve odd/incomplete histories without crashing; trimming will
+            # still operate on whole retained chunks.
+            turn = [message]
+            index += 1
+            while index < len(messages) and isinstance(messages[index], ToolMessage):
+                turn.append(messages[index])
+                index += 1
+            turns.append(turn)
+            continue
+
+        turns.append([message])
+        index += 1
+
+    return turns
 
 
 def trim_messages_for_model(
     messages: Sequence[AnyMessage],
     context: ExecutionContext,
 ) -> list[AnyMessage]:
-    """Trim chat history to fit the configured model budget while preserving system messages."""
+    """Trim history to the token budget while preserving system messages and whole turns."""
 
     max_input_tokens = (
         context.chat_context_window_tokens
@@ -137,16 +227,30 @@ def trim_messages_for_model(
         - context.chat_token_safety_margin
     )
 
-    trimmed = trim_messages(
-        list(messages),
-        strategy="last",
-        token_counter=lambda batch: qwen_token_counter(
-            batch,
+    system_messages, conversation_messages = _split_system_and_conversation(messages)
+    turns = _split_conversation_into_turns(conversation_messages)
+
+    kept_turns: list[list[AnyMessage]] = []
+
+    for turn in reversed(turns):
+        candidate_turns = [turn, *reversed(kept_turns)]
+        candidate_messages = system_messages + [
+            message for candidate_turn in candidate_turns for message in candidate_turn
+        ]
+
+        token_count = qwen_token_counter(
+            candidate_messages,
             tokenizer_name=context.chat_tokenizer_name,
-        ),
-        max_tokens=max_input_tokens,
-        include_system=True,
-        start_on="human",
-        allow_partial=False,
-    )
-    return list(trimmed)
+        )
+        if token_count <= max_input_tokens:
+            kept_turns.append(turn)
+
+    # If the budget is too strict to fit even one full turn, keep the latest turn
+    # instead of dropping all conversational context.
+    if not kept_turns and turns:
+        kept_turns = [turns[-1]]
+
+    trimmed_messages = system_messages + [
+        message for turn in reversed(kept_turns) for message in turn
+    ]
+    return trimmed_messages
