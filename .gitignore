@@ -1,0 +1,16 @@
+.codex/
+.ipynb_checkpoints/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+dist/
+build/
+*.whl
+*.egg-info/
+__pycache__/
+*.py[cod]
+memory_test/
+test_memory/
+*.npy

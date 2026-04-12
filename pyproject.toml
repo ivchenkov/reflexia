@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reflexia"
+version = "0.1.0"
+description = "Local-first LangGraph agent with Ollama-backed long-term memory."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "Dmitrii Divchenkov" }
+]
+dependencies = [
+  "langchain>=0.3",
+  "langchain-core>=0.3",
+  "langchain-ollama>=0.3",
+  "langgraph>=0.2",
+  "numpy>=1.26",
+  "ollama>=0.4",
+  "pydantic>=2.7",
+  "requests>=2.31",
+  "trafilatura>=1.9",
+]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
