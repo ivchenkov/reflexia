@@ -18,6 +18,7 @@ class ExecutionContext:
     chat_context_window_tokens: int
     chat_response_reserve_tokens: int
     chat_token_safety_margin: int
+    max_parallel_tool_calls: int
     ltm: LongTermMemory
     ltm_path: str
     max_react_steps: int
@@ -67,6 +68,7 @@ def create_default_execution_context() -> ExecutionContext:
         chat_context_window_tokens=32768,
         chat_response_reserve_tokens=512,
         chat_token_safety_margin=256,
+        max_parallel_tool_calls=3,
         ltm=LongTermMemory(),
         ltm_path="./memory_test/",
         max_react_steps=50,

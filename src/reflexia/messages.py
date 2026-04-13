@@ -16,6 +16,8 @@ from transformers import AutoTokenizer
 
 from reflexia.config import ExecutionContext
 
+CYCLE_ID_KEY = "cycle_id"
+
 
 def _tokenized_length(tokenized: Any) -> int:
     """Extract the token sequence length from common HF return shapes."""
@@ -159,98 +161,96 @@ def qwen_token_counter(
     return _tokenized_length(tokenized)
 
 
-def _split_system_and_conversation(
+def get_cycle_id(message: AnyMessage) -> int | None:
+    """Return the cycle id attached to a message, if present."""
+
+    value = (message.additional_kwargs or {}).get(CYCLE_ID_KEY)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def annotate_messages_with_cycle_id(
     messages: Sequence[AnyMessage],
-) -> tuple[list[AnyMessage], list[AnyMessage]]:
-    """Split leading system messages from the rest of the conversation."""
+    cycle_id: int,
+) -> list[AnyMessage]:
+    """Return deep-copied messages annotated with a cycle id."""
 
-    system_messages: list[AnyMessage] = []
-    conversation_messages: list[AnyMessage] = []
-    seen_non_system = False
-
+    annotated: list[AnyMessage] = []
     for message in messages:
-        if not seen_non_system and isinstance(message, SystemMessage):
-            system_messages.append(message)
-            continue
-        seen_non_system = True
-        conversation_messages.append(message)
-
-    return system_messages, conversation_messages
+        additional_kwargs = dict(message.additional_kwargs or {})
+        additional_kwargs[CYCLE_ID_KEY] = int(cycle_id)
+        annotated.append(message.model_copy(update={"additional_kwargs": additional_kwargs}))
+    return annotated
 
 
-def _split_conversation_into_turns(
+def remove_cycles_by_id(
     messages: Sequence[AnyMessage],
-) -> list[list[AnyMessage]]:
-    """Group conversation messages into atomic turns for agent-cycle trimming."""
+    cycle_ids_to_remove: set[int],
+) -> list[AnyMessage]:
+    """Remove all messages that belong to any of the provided cycle ids."""
 
-    turns: list[list[AnyMessage]] = []
-    index = 0
+    return [
+        message
+        for message in messages
+        if (cycle_id := get_cycle_id(message)) is None
+        or cycle_id not in cycle_ids_to_remove
+    ]
 
-    while index < len(messages):
-        message = messages[index]
 
-        if isinstance(message, AIMessage) and getattr(message, "tool_calls", None):
-            turn = [message]
-            index += 1
-            while index < len(messages) and isinstance(messages[index], ToolMessage):
-                turn.append(messages[index])
-                index += 1
-            turns.append(turn)
-            continue
+def get_usable_input_token_budget(context: ExecutionContext) -> int:
+    """Return the maximum number of input tokens available for chat history."""
 
-        if isinstance(message, ToolMessage):
-            # Preserve odd/incomplete histories without crashing; trimming will
-            # still operate on whole retained chunks.
-            turn = [message]
-            index += 1
-            while index < len(messages) and isinstance(messages[index], ToolMessage):
-                turn.append(messages[index])
-                index += 1
-            turns.append(turn)
-            continue
-
-        turns.append([message])
-        index += 1
-
-    return turns
+    return (
+        context.chat_context_window_tokens
+        - context.chat_response_reserve_tokens
+        - context.chat_token_safety_margin
+    )
 
 
 def trim_messages_for_model(
     messages: Sequence[AnyMessage],
     context: ExecutionContext,
 ) -> list[AnyMessage]:
-    """Trim history to the token budget while preserving system messages and whole turns."""
+    """Trim history by removing oldest cycle ids until the token budget is satisfied."""
 
-    max_input_tokens = (
-        context.chat_context_window_tokens
-        - context.chat_response_reserve_tokens
-        - context.chat_token_safety_margin
+    max_input_tokens = get_usable_input_token_budget(context)
+    message_list = list(messages)
+
+    token_count = qwen_token_counter(
+        message_list,
+        tokenizer_name=context.chat_tokenizer_name,
     )
+    if token_count <= max_input_tokens:
+        return message_list
 
-    system_messages, conversation_messages = _split_system_and_conversation(messages)
-    turns = _split_conversation_into_turns(conversation_messages)
+    seen_cycle_ids: list[int] = []
+    for message in message_list:
+        cycle_id = get_cycle_id(message)
+        if cycle_id is not None and cycle_id not in seen_cycle_ids:
+            seen_cycle_ids.append(cycle_id)
 
-    kept_turns: list[list[AnyMessage]] = []
+    if not seen_cycle_ids:
+        return message_list
 
-    for turn in reversed(turns):
-        candidate_turns = [turn, *reversed(kept_turns)]
-        candidate_messages = system_messages + [
-            message for candidate_turn in candidate_turns for message in candidate_turn
-        ]
-
+    cycle_ids_to_remove: set[int] = set()
+    for cycle_id in seen_cycle_ids:
+        cycle_ids_to_remove.add(cycle_id)
+        candidate_messages = remove_cycles_by_id(message_list, cycle_ids_to_remove)
         token_count = qwen_token_counter(
             candidate_messages,
             tokenizer_name=context.chat_tokenizer_name,
         )
         if token_count <= max_input_tokens:
-            kept_turns.append(turn)
+            return candidate_messages
 
-    # If the budget is too strict to fit even one full turn, keep the latest turn
-    # instead of dropping all conversational context.
-    if not kept_turns and turns:
-        kept_turns = [turns[-1]]
-
-    trimmed_messages = system_messages + [
-        message for turn in reversed(kept_turns) for message in turn
-    ]
-    return trimmed_messages
+    # Keep at least the newest cycle if present.
+    newest_cycle = seen_cycle_ids[-1]
+    candidate_messages = remove_cycles_by_id(message_list, set(seen_cycle_ids[:-1]))
+    return candidate_messages if candidate_messages else remove_cycles_by_id(
+        message_list,
+        {cycle_id for cycle_id in seen_cycle_ids if cycle_id != newest_cycle},
+    )
