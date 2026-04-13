@@ -37,3 +37,8 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+markers = [
+  "heavy: requires local Ollama model and may take noticeable time",
+]

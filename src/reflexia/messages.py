@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from functools import lru_cache
 from typing import Any, Sequence
 
@@ -19,146 +20,67 @@ from reflexia.config import ExecutionContext
 CYCLE_ID_KEY = "cycle_id"
 
 
-def _tokenized_length(tokenized: Any) -> int:
-    """Extract the token sequence length from common HF return shapes."""
-
-    if hasattr(tokenized, "keys") and "input_ids" in tokenized:
-        return _tokenized_length(tokenized["input_ids"])
-
-    if isinstance(tokenized, dict):
-        if "input_ids" not in tokenized:
-            raise KeyError("Expected 'input_ids' in tokenized chat template output.")
-        return _tokenized_length(tokenized["input_ids"])
-
-    if hasattr(tokenized, "shape"):
-        shape = tokenized.shape
-        if len(shape) == 1:
-            return int(shape[0])
-        if len(shape) == 0:
-            return 1
-        return int(shape[-1])
-
-    if isinstance(tokenized, list):
-        if not tokenized:
-            return 0
-        first_item = tokenized[0]
-        if isinstance(first_item, list):
-            return len(first_item)
-        return len(tokenized)
-
-    raise TypeError(
-        "Unsupported tokenized chat template output type: "
-        f"{type(tokenized).__name__}"
-    )
-
-
 @lru_cache(maxsize=None)
 def get_tokenizer(tokenizer_name: str) -> Any:
-    """Load and cache the tokenizer used for chat-template token counting."""
-
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-    tokenizer.model_max_length = 10**9
     return tokenizer
 
 
-def _message_content_to_text(content: Any) -> str:
-    """Convert LangChain message content into plain text for token counting."""
-
-    if isinstance(content, str):
-        return content
-    if content is None:
-        return ""
-    if isinstance(content, list):
-        chunks: list[str] = []
-        for item in content:
-            if isinstance(item, str):
-                chunks.append(item)
-            elif isinstance(item, dict) and item.get("type") == "text":
-                chunks.append(str(item.get("text", "")))
-            else:
-                chunks.append(str(item))
-        return "\n".join(chunk for chunk in chunks if chunk)
-    return str(content)
-
-
-def _to_qwen_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
-    """Convert a LangChain tool call into the structure expected by Qwen templates."""
-
-    if "function" in tool_call:
-        return tool_call
-
-    qwen_tool_call = {
-        "type": "function",
-        "function": {
-            "name": tool_call["name"],
-            "arguments": tool_call.get("args", {}),
-        },
-    }
-    if tool_call.get("id") is not None:
-        qwen_tool_call["id"] = tool_call["id"]
-    return qwen_tool_call
-
-
-def to_qwen_chat_message(message: AnyMessage) -> dict[str, Any]:
-    """Convert a LangChain message into the structure expected by Qwen."""
-
+def _to_qwen_message(message: AnyMessage) -> dict:
     if isinstance(message, SystemMessage):
-        return {
-            "role": "system",
-            "content": _message_content_to_text(message.content),
-        }
+        return {"role": "system", "content": message.content or ""}
 
     if isinstance(message, HumanMessage):
-        return {
-            "role": "user",
-            "content": _message_content_to_text(message.content),
-        }
+        return {"role": "user", "content": message.content or ""}
 
     if isinstance(message, AIMessage):
-        qwen_message: dict[str, Any] = {
+        msg = {
             "role": "assistant",
-            "content": _message_content_to_text(message.content),
+            "content": message.content or "",
         }
-        if getattr(message, "tool_calls", None):
-            qwen_message["tool_calls"] = [
-                _to_qwen_tool_call(tool_call) for tool_call in message.tool_calls
+
+        if message.tool_calls:
+            msg["tool_calls"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tc["name"],
+                        "arguments": json.dumps(
+                            tc.get("args", {}),
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                            sort_keys=True,
+                        ),
+                    },
+                    "id": tc.get("id"),
+                }
+                for tc in message.tool_calls
             ]
-        return qwen_message
+
+        return msg
 
     if isinstance(message, ToolMessage):
-        qwen_message = {
+        return {
             "role": "tool",
-            "content": _message_content_to_text(message.content),
+            "content": message.content or "",
+            "tool_call_id": message.tool_call_id,
         }
-        if getattr(message, "tool_call_id", None):
-            qwen_message["tool_call_id"] = message.tool_call_id
-        if getattr(message, "name", None):
-            qwen_message["tool_name"] = message.name
-        return qwen_message
 
-    return {
-        "role": "user",
-        "content": _message_content_to_text(getattr(message, "content", message)),
-    }
+    raise TypeError(f"Unsupported message type: {type(message)}")
 
 
-def qwen_token_counter(
+def count_tokens_qwen(
     messages: Sequence[AnyMessage],
     *,
     tokenizer_name: str,
 ) -> int:
-    """Count tokens for a sequence of chat messages using Qwen chat formatting."""
-
     tokenizer = get_tokenizer(tokenizer_name)
-    chat_messages = [to_qwen_chat_message(message) for message in messages]
-    tokenized = tokenizer.apply_chat_template(
-        chat_messages,
-        tokenize=True,
+    messages = [_to_qwen_message(message) for message in messages]
+    token_ids = tokenizer.apply_chat_template(
+        messages,
         add_generation_prompt=True,
-        return_dict=True,
-        return_tensors="np",
-    )
-    return _tokenized_length(tokenized)
+    )["input_ids"]
+    return len(token_ids)
 
 
 def get_cycle_id(message: AnyMessage) -> int | None:
@@ -220,7 +142,7 @@ def trim_messages_for_model(
     max_input_tokens = get_usable_input_token_budget(context)
     message_list = list(messages)
 
-    token_count = qwen_token_counter(
+    token_count = count_tokens_qwen(
         message_list,
         tokenizer_name=context.chat_tokenizer_name,
     )
@@ -240,7 +162,7 @@ def trim_messages_for_model(
     for cycle_id in seen_cycle_ids:
         cycle_ids_to_remove.add(cycle_id)
         candidate_messages = remove_cycles_by_id(message_list, cycle_ids_to_remove)
-        token_count = qwen_token_counter(
+        token_count = count_tokens_qwen(
             candidate_messages,
             tokenizer_name=context.chat_tokenizer_name,
         )
