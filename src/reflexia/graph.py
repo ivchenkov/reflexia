@@ -203,6 +203,3 @@ def run_childhood_iteration(runtime_context: ChildhoodRuntime, n: int = 1) -> No
             },
             context=runtime_context,
         )
-        print(step, "-" * 20)
-        for message in result["messages"]:
-            message.pretty_print()
