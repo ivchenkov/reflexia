@@ -27,11 +27,12 @@ def now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def build_memory_id() -> str:
+def build_memory_id(uuid_suffix_len: int = 12) -> str:
     """Generate a stable unique ID suitable for filesystem persistence."""
 
     timestamp = now_utc().strftime("%Y%m%dT%H%M%S%fZ")
-    suffix = uuid.uuid4().hex[:12]
+    suffix_len = max(1, int(uuid_suffix_len))
+    suffix = uuid.uuid4().hex[:suffix_len]
     return f"mem_{timestamp}_{suffix}"
 
 
@@ -39,7 +40,6 @@ class MemoryItem(BaseModel):
     """A single persistent long-term memory item."""
 
     memory_id: str
-    react_step: int
     text: str
     kind: MemoryKind
     created_at: datetime = Field(default_factory=now_utc)
@@ -101,7 +101,6 @@ class LongTermMemory:
 
     def remember(
         self,
-        react_step: int,
         text: str,
         kind: MemoryKind,
         embedding: np.ndarray,
@@ -111,7 +110,6 @@ class LongTermMemory:
         memory_id = build_memory_id()
         memory_item = MemoryItem(
             memory_id=memory_id,
-            react_step=react_step,
             text=text,
             kind=kind,
         )

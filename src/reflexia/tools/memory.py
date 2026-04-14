@@ -20,9 +20,6 @@ def remember_long_term_memory(
     """Store a new long-term memory."""
 
     ctx = runtime.context
-    state = runtime.state
-
-    react_step = int(state.get("react_step", 0))
     trimmed_text = text.strip()[: ctx.long_term_memory_max_chars]
 
     embedding = get_embedding(
@@ -32,7 +29,6 @@ def remember_long_term_memory(
     )
 
     memory_id = ctx.ltm.remember(
-        react_step=react_step,
         text=trimmed_text,
         kind=kind,
         embedding=embedding,
@@ -40,7 +36,6 @@ def remember_long_term_memory(
 
     return {
         "memory_id": memory_id,
-        "react_step": react_step,
         "kind": kind,
         "text": trimmed_text,
         "status": "stored",
@@ -75,7 +70,6 @@ def recall_long_term_memory(
         "memories": [
             {
                 "memory_id": memory.memory_id,
-                "react_step": memory.react_step,
                 "kind": memory.kind,
                 "text": memory.text[: ctx.long_term_memory_max_chars],
                 "created_at": memory.created_at.isoformat(),
@@ -145,10 +139,6 @@ def remember_childhood_memory(
     """
 
     ctx = runtime.context
-    state = runtime.state
-
-    react_step = int(state.get("react_step", 0))
-
     max_len = int(ctx.long_term_memory_max_chars)
 
     trimmed_text = text.strip()[:max_len]
@@ -160,7 +150,6 @@ def remember_childhood_memory(
     )
 
     memory_id = ctx.ltm.remember(
-        react_step=react_step,
         text=trimmed_text,
         kind=kind,
         embedding=embedding,
@@ -168,7 +157,6 @@ def remember_childhood_memory(
 
     return {
         "memory_id": memory_id,
-        "react_step": react_step,
         "kind": kind,
         "text": trimmed_text,
         "status": "stored",
