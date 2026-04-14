@@ -142,7 +142,6 @@ def childhood_memory(
     )
 
     ctx.ltm.remember(
-        react_step=int(state.get("react_step", 0)),
         text=trimmed_text,
         kind=state["tone"],
         embedding=embedding,
