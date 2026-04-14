@@ -1,20 +1,22 @@
 """Reflexia package."""
 
-from reflexia.config import (
-    ExecutionContext,
-    create_default_execution_context,
-    get_default_tools,
+from reflexia.config import ChildhoodRuntime, create_childhood_runtime
+from reflexia.graph import (
+    AgentState,
+    build_childhood_graph,
+    make_exploration_prompt,
+    run_childhood_iteration,
 )
-from reflexia.graph import AgentState, build_graph
 from reflexia.memory import LongTermMemory, MemoryItem, MemoryKind
 
 __all__ = [
     "AgentState",
-    "ExecutionContext",
+    "ChildhoodRuntime",
     "LongTermMemory",
     "MemoryItem",
     "MemoryKind",
-    "build_graph",
-    "create_default_execution_context",
-    "get_default_tools",
+    "build_childhood_graph",
+    "create_childhood_runtime",
+    "make_exploration_prompt",
+    "run_childhood_iteration",
 ]

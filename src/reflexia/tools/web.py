@@ -8,7 +8,7 @@ import requests
 import trafilatura
 from langchain.tools import ToolRuntime, tool
 
-from reflexia.config import ExecutionContext
+from reflexia.config import ChildhoodRuntime
 
 
 class SearchResult(TypedDict):
@@ -43,30 +43,48 @@ def search_web_impl(
     ]
 
 
-def read_webpage_impl(url: str, max_chars: int) -> str:
+def read_webpage_impl(url: str, max_chars: int = 1000) -> str:
     """Fetch a web page and extract the main text content."""
 
-    downloaded = trafilatura.fetch_url(url)
-    if not downloaded:
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) "
+            "Gecko/20100101 Firefox/124.0"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-GB,en;q=0.9",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+    }
+
+    try:
+        result = requests.get(
+            url,
+            headers=headers,
+        )
+    except requests.RequestException:
+        return ""
+
+    if result.status_code != 200:
         return ""
 
     text = trafilatura.extract(
-        downloaded,
+        result.text,
         url=url,
         favor_precision=True,
         include_comments=False,
         with_metadata=False,
     )
+
     if not text:
         return ""
 
-    return f"URL: {url}\n\n{text[:max_chars]}"
-
+    return text[:max_chars]
 
 @tool
 def search_web(
     query: str,
-    runtime: ToolRuntime[ExecutionContext],
+    runtime: ToolRuntime[ChildhoodRuntime],
 ) -> list[SearchResult]:
     """Find relevant web pages for a query."""
 
@@ -82,7 +100,7 @@ def search_web(
 @tool
 def read_webpage(
     url: str,
-    runtime: ToolRuntime[ExecutionContext],
+    runtime: ToolRuntime[ChildhoodRuntime],
 ) -> str:
     """Read and extract the main text from a web page."""
 

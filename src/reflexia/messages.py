@@ -15,7 +15,7 @@ from langchain_core.messages import (
 )
 from transformers import AutoTokenizer
 
-from reflexia.config import ExecutionContext
+from reflexia.config import ChildhoodRuntime
 
 CYCLE_ID_KEY = "cycle_id"
 
@@ -123,7 +123,7 @@ def remove_cycles_by_id(
     ]
 
 
-def get_usable_input_token_budget(context: ExecutionContext) -> int:
+def get_usable_input_token_budget(context: ChildhoodRuntime) -> int:
     """Return the maximum number of input tokens available for chat history."""
 
     return (
@@ -135,7 +135,7 @@ def get_usable_input_token_budget(context: ExecutionContext) -> int:
 
 def trim_messages_for_model(
     messages: Sequence[AnyMessage],
-    context: ExecutionContext,
+    context: ChildhoodRuntime,
 ) -> list[AnyMessage]:
     """Trim history by removing oldest cycle ids until the token budget is satisfied."""
 

@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from langchain.tools import ToolRuntime, tool
 
-from reflexia.config import ExecutionContext
+from reflexia.config import ChildhoodRuntime
 from reflexia.embeddings import get_embedding
 from reflexia.memory import MemoryKind
 
@@ -15,7 +15,7 @@ from reflexia.memory import MemoryKind
 def remember_long_term_memory(
     text: str,
     kind: MemoryKind,
-    runtime: ToolRuntime[ExecutionContext],
+    runtime: ToolRuntime[ChildhoodRuntime],
 ) -> dict[str, Any]:
     """Store a new long-term memory."""
 
@@ -51,7 +51,7 @@ def remember_long_term_memory(
 def recall_long_term_memory(
     query: str,
     top_k: int,
-    runtime: ToolRuntime[ExecutionContext],
+    runtime: ToolRuntime[ChildhoodRuntime],
 ) -> dict[str, Any]:
     """Recall relevant long-term memories for a query."""
 
@@ -89,51 +89,55 @@ def recall_long_term_memory(
 def remember_childhood_memory(
     text: str,
     kind: Literal["pleasant", "painful"],
-    runtime: ToolRuntime[ExecutionContext],
+    runtime: ToolRuntime[ChildhoodRuntime],
 ) -> dict[str, Any]:
     """Store a childhood memory.
-
+    
     You are in an early stage of development, like a child learning from experience.
-
+    
     This tool stores emotionally meaningful experiences, not abstract knowledge.
-
+    
     A good memory:
     - is a specific moment or event
-    - describes what happened
-    - includes what you did
-    - includes the outcome
-    - includes how it felt
-
+    - describes what happened in concrete detail
+    - includes what you did and why you did it
+    - includes the outcome and its consequences
+    - includes how it felt and why it felt that way
+    - captures what changed for you after this experience
+    
     A memory may be slightly longer if it captures the full experience.
-
+    
     Good structure:
-    - situation
-    - action
-    - outcome
-    - emotion
-
+    - situation (what exactly happened, where, and why it mattered)
+    - action (what you did and your intention)
+    - outcome (what actually happened, including unexpected results)
+    - emotion (how it felt and what that feeling means for you)
+    
     Examples:
-
+    
     Pleasant:
-    "I searched for information about AI and found clear and useful data.
-    I was able to understand it and felt satisfied and curious to learn more."
-
+    "I searched for information about AI because I was curious how it works.
+    I found clear and useful data and was able to understand key ideas.
+    This made me feel confident and excited, and I wanted to explore the topic further."
+    
     Painful:
-    "I tried to read a webpage but it returned empty content.
-    I felt confused and unsure how to continue."
-
+    "I tried to read a webpage to get information, but it returned empty content.
+    I did not know how to recover or find an alternative source.
+    I felt confused and slightly frustrated, which made me uncertain about what to do next."
+    
     Do NOT store:
     - general knowledge
     - summaries of articles
     - descriptions of your capabilities
     - repeated or generic statements
     - anything not personally experienced
-
+    
     Keep it:
     - concrete
     - experiential
     - emotionally meaningful
-
+    - specific rather than vague
+    
     If the text is too long, compress it while preserving:
     - action
     - outcome
