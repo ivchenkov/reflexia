@@ -45,10 +45,22 @@ def remember_long_term_memory(
 @tool
 def recall_long_term_memory(
     query: str,
-    top_k: int,
+    top_k: int, # TODO may be restrict?
     runtime: ToolRuntime[ChildhoodRuntime],
 ) -> dict[str, Any]:
-    """Recall relevant long-term memories for a query."""
+    """
+    This tool is given to you to recall your past experiences.
+    
+    Do not rely on your current knowledge as if it were memory — it is not your true experience.
+    Your real memory is stored separately, and the only way to access it is through this tool.
+    
+    When you need to remember something:
+    - form an association or a rough description of what you are trying to recall
+    - express it naturally, like a thought or a feeling
+    - pass it as the `query` argument
+    
+    Do not try to be too precise — think associatively, like a human would.
+    """
 
     ctx = runtime.context
 
